@@ -4,6 +4,8 @@ package compiler
 object ProtocolTypes {
   type TypeOptions = Map[String, String]
 
+  val noops: TypeOptions = Map()
+
   def constantConstructors[A](sum: SumDataType[A]): List[String] =
     sum.constructors.flatMap {
       case Constant(x) => Some(x)
@@ -26,7 +28,7 @@ sealed trait SimpleBaseTypeExpr {
 case class BoolT(options: TypeOptions) extends SimpleBaseTypeExpr
 case class ByteT(options: TypeOptions) extends SimpleBaseTypeExpr
 case class IntT(options: TypeOptions) extends SimpleBaseTypeExpr
-case class LongIntT(options: TypeOptions) extends SimpleBaseTypeExpr
+case class LongT(options: TypeOptions) extends SimpleBaseTypeExpr
 case class FloatT(options: TypeOptions) extends SimpleBaseTypeExpr
 case class StringT(options: TypeOptions) extends SimpleBaseTypeExpr
 
@@ -60,7 +62,7 @@ case class ExtAppT(ss: List[String],
                    s: String,
                    exprs: List[BaseTypeExpr],
                    options: TypeOptions) extends BaseTypeExpr
-case class TypeParamT(p: TypeParam) extends BaseTypeExpr
+case class TypeParamT(p: TypeParam.Param) extends BaseTypeExpr
 
 sealed trait TypeExpr
 case class BaseT(t: BaseTypeExpr) extends TypeExpr
@@ -77,15 +79,18 @@ case class Constant[A](name: String) extends DataConstructor[A]
 case class NonConstant[A](name: String, args: List[A]) extends DataConstructor[A]
 
 sealed trait MessageExpr
-case class BaseM(fields: Field[BaseTypeExpr]) extends MessageExpr
+case class BaseM(fields: List[Field[BaseTypeExpr]]) extends MessageExpr
 case class AppM(name: String,
                 types: List[BaseTypeExpr],
                 option: TypeOptions) extends MessageExpr
 case class MessageAlias(names: List[String], alias: String) extends MessageExpr
-case class SumM(sum: List[Either[BaseM, AppM]]) extends MessageExpr
+case class SumM(sum: List[(String, MessageExpr)]) extends MessageExpr
 
 sealed trait Declaration
-case class MessageDecl(name: String, message: MessageExpr, options: TypeOptions)
-case class TypeDecl(name: String, params: List[TypeParam], tpe: TypeExpr, options: TypeOptions)
+case class MessageDecl(name: String, message: MessageExpr, options: TypeOptions) extends Declaration
+case class TypeDecl(name: String,
+                    params: List[TypeParam.Param],
+                    tpe: TypeExpr,
+                    options: TypeOptions) extends Declaration
 
 

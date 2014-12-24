@@ -2,7 +2,7 @@ name := "extprot-scala"
 
 version := "0.1"
 
-scalaVersion := "2.11.4"
+scalaVersion := "2.10.4"
 
 description := "Extensible Protocols for Scala"
 
@@ -31,5 +31,7 @@ javacOptions += "-Xlint"
 scalacOptions ~= (so => (so filterNot Set("-unchecked", "-Xlint"))
                     ++ Seq("-Ywarn-nullary-override", "-Ywarn-inaccessible"))
 
-libraryDependencies += "org.scalaz" %% "scalaz-core" % "7.1.+"
+libraryDependencies ++= Seq("org.scalaz" %% "scalaz-core" % "7.1.+",
+                           "scala-parsers" %% "scala-parsers" % "0.1")
 
+resolvers += ("ermine" at "http://dl.bintray.com/ermine/maven/")
