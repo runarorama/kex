@@ -58,8 +58,8 @@ sealed trait BaseTypeExpr {
 }
 case class CoreT(t: CoreBaseTypeExpr[BaseTypeExpr]) extends BaseTypeExpr
 case class AppT(s: String, exprs: List[BaseTypeExpr], options: TypeOptions) extends BaseTypeExpr
-case class ExtAppT(ss: List[String],
-                   s: String,
+case class ExtAppT(path: List[String],
+                   name: String,
                    exprs: List[BaseTypeExpr],
                    options: TypeOptions) extends BaseTypeExpr
 case class TypeParamT(p: TypeParam.Param) extends BaseTypeExpr
@@ -86,11 +86,18 @@ case class AppM(name: String,
 case class MessageAlias(names: List[String], alias: String) extends MessageExpr
 case class SumM(sum: List[(String, MessageExpr)]) extends MessageExpr
 
-sealed trait Declaration
-case class MessageDecl(name: String, message: MessageExpr, options: TypeOptions) extends Declaration
+sealed trait Declaration {
+  def name: String
+  def arity: Int
+}
+case class MessageDecl(name: String,
+                       message: MessageExpr,
+                       options: TypeOptions) extends Declaration {
+  def arity = 0
+}
 case class TypeDecl(name: String,
                     params: List[TypeParam.Param],
                     tpe: TypeExpr,
-                    options: TypeOptions) extends Declaration
-
-
+                    options: TypeOptions) extends Declaration {
+  def arity = params.length
+}
