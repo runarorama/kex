@@ -143,7 +143,7 @@ object Parser {
     lident.map(AppM(_, Nil, noops))
 
   lazy val record = "record" |:
-    brace(fieldList).map(BaseM(_))
+    brace(fieldList).map(RecordM(_))
 
   lazy val recordOrApp: Parser[MessageExpr] = record | recordApp
 

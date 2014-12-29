@@ -55,49 +55,110 @@ object TypeParam extends TypeParam {
 
 sealed trait BaseTypeExpr {
   lazy val tpe: TypeExpr = BaseT(this)
+  def freeVars(known: List[String]): List[String]
 }
-case class CoreT(t: CoreBaseTypeExpr[BaseTypeExpr]) extends BaseTypeExpr
-case class AppT(s: String, exprs: List[BaseTypeExpr], options: TypeOptions) extends BaseTypeExpr
+case class CoreT(t: CoreBaseTypeExpr[BaseTypeExpr]) extends BaseTypeExpr {
+  def freeVars(known: List[String]): List[String] = t match {
+    case TupleT(as, _) => as flatMap (_ freeVars known)
+    case ListT(a, _) => a freeVars known
+    case ArrayT(a, _) => a freeVars known
+    case _ => Nil
+  }
+}
+case class AppT(name: String,
+                types: List[BaseTypeExpr],
+                options: TypeOptions) extends BaseTypeExpr {
+  def freeVars(known: List[String]): List[String] = {
+    val ts = types flatMap (_ freeVars known)
+    if (known contains name) ts else name :: ts
+  }
+}
 case class ExtAppT(path: List[String],
                    name: String,
                    exprs: List[BaseTypeExpr],
-                   options: TypeOptions) extends BaseTypeExpr
-case class TypeParamT(p: TypeParam.Param) extends BaseTypeExpr
+                   options: TypeOptions) extends BaseTypeExpr {
+  def freeVars(known: List[String]): List[String] =
+    exprs flatMap (_ freeVars known)
+}
+case class TypeParamT(p: TypeParam.Param) extends BaseTypeExpr {
+  def freeVars(known: List[String]): List[String] = {
+    val s = TypeParam toString p
+    if (known contains s) Nil else List(s)
+  }
+}
 
-sealed trait TypeExpr
-case class BaseT(t: BaseTypeExpr) extends TypeExpr
-case class RecordT(record: RecordDataType[BaseTypeExpr], options: TypeOptions) extends TypeExpr
-case class SumT(sum: SumDataType[BaseTypeExpr], options: TypeOptions) extends TypeExpr
+sealed trait TypeExpr {
+  def freeVars(known: List[String]): List[String]
+}
+case class BaseT(t: BaseTypeExpr) extends TypeExpr {
+  def freeVars(known: List[String]): List[String] = t freeVars known
+}
+case class RecordT(record: RecordDataType[BaseTypeExpr],
+                   options: TypeOptions) extends TypeExpr {
+  def freeVars(known: List[String]): List[String] =
+    record.fields flatMap {
+      case Field(_, _, ty) => ty freeVars known
+    }
+}
+case class SumT(sum: SumDataType[BaseTypeExpr], options: TypeOptions) extends TypeExpr {
+  def freeVars(known: List[String]): List[String] =
+    sum.constructors flatMap {
+      case NonConstant(_, as) => as flatMap (_ freeVars known)
+      case _ => Nil
+    }
+}
 
 case class Field[A](name: String, mutable: Boolean, tpe: A)
 case class RecordDataType[A](name: String, fields: List[Field[A]])
-
 case class SumDataType[A](name: String, constructors: List[DataConstructor[A]])
 
 sealed trait DataConstructor[A]
 case class Constant[A](name: String) extends DataConstructor[A]
 case class NonConstant[A](name: String, args: List[A]) extends DataConstructor[A]
 
-sealed trait MessageExpr
-case class BaseM(fields: List[Field[BaseTypeExpr]]) extends MessageExpr
+sealed trait MessageExpr {
+  def freeVars(known: List[String]): List[String]
+}
+case class RecordM(fields: List[Field[BaseTypeExpr]]) extends MessageExpr {
+  def freeVars(known: List[String]): List[String] =
+    fields flatMap {
+      case Field(_, _, e) => e freeVars known
+    }
+}
 case class AppM(name: String,
                 types: List[BaseTypeExpr],
-                option: TypeOptions) extends MessageExpr
-case class MessageAlias(names: List[String], alias: String) extends MessageExpr
-case class SumM(sum: List[(String, MessageExpr)]) extends MessageExpr
+                option: TypeOptions) extends MessageExpr {
+  def freeVars(known: List[String]): List[String] =
+    types flatMap { _ freeVars known }
+}
+case class MessageAlias(names: List[String], alias: String) extends MessageExpr {
+  def freeVars(known: List[String]): List[String] = Nil
+}
+case class SumM(sum: List[(String, MessageExpr)]) extends MessageExpr {
+  def freeVars(known: List[String]): List[String] =
+    sum flatMap {
+      case (_, e) => e freeVars known
+    }
+}
 
 sealed trait Declaration {
   def name: String
   def arity: Int
+  def freeTypeVariables: List[String]
 }
 case class MessageDecl(name: String,
                        message: MessageExpr,
                        options: TypeOptions) extends Declaration {
   def arity = 0
+  def freeTypeVariables: List[String] =
+    message freeVars List(name)
 }
 case class TypeDecl(name: String,
                     params: List[TypeParam.Param],
                     tpe: TypeExpr,
                     options: TypeOptions) extends Declaration {
   def arity = params.length
+  def freeTypeVariables: List[String] =
+    tpe.freeVars(name :: params.map(TypeParam toString _))
 }
+
