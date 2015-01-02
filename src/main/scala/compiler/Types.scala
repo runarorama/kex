@@ -1,8 +1,16 @@
 package extprot
 package compiler
 
+import scalaz._
+import Scalaz._
+import bound._
+
 object ProtocolTypes {
   type TypeOptions = Map[String, String]
+  type BaseType = BaseTypeExpr[String]
+  type BaseScope[A] = Scope[String, BaseTypeExpr, A]
+  type Type = TypeExpr[String]
+  type MessageDef = MessageExpr[String]
 
   val noops: TypeOptions = Map()
 
@@ -22,8 +30,7 @@ object ProtocolTypes {
 import ProtocolTypes._
 
 sealed trait SimpleBaseTypeExpr {
-  lazy val base: BaseTypeExpr = CoreT(SimpleT(this))
-  lazy val tpe: TypeExpr = BaseT(base)
+  def base[A]: BaseTypeExpr[A] = CoreT(SimpleT[BaseTypeExpr[A]](this))
 }
 case class BoolT(options: TypeOptions) extends SimpleBaseTypeExpr
 case class ByteT(options: TypeOptions) extends SimpleBaseTypeExpr
@@ -38,107 +45,143 @@ case class TupleT[A](as: List[A], options: TypeOptions) extends CoreBaseTypeExpr
 case class ListT[A](a: A, options: TypeOptions) extends CoreBaseTypeExpr[A]
 case class ArrayT[A](a: A, options: TypeOptions) extends CoreBaseTypeExpr[A]
 
-abstract class TypeParam {
-  type Param
-
-  def fromString(s: String): Param
-  def toString(p: Param): String
-  def name(p: Param): String
-}
-
-object TypeParam extends TypeParam {
-  type Param = String
-  def fromString(s: String) = s
-  def toString(p: Param) = p
-  def name(p: Param) = p
-}
-
-sealed trait BaseTypeExpr {
-  lazy val tpe: TypeExpr = BaseT(this)
-  def freeVars(known: List[String]): List[String]
-}
-case class CoreT(t: CoreBaseTypeExpr[BaseTypeExpr]) extends BaseTypeExpr {
-  def freeVars(known: List[String]): List[String] = t match {
-    case TupleT(as, _) => as flatMap (_ freeVars known)
-    case ListT(a, _) => a freeVars known
-    case ArrayT(a, _) => a freeVars known
-    case _ => Nil
+sealed trait BaseTypeExpr[+A] {
+  def freeVars: List[A] = Traverse[BaseTypeExpr].toList(this)
+  def plate[F[_]:Applicative, AA >: A](
+    f: BaseTypeExpr[AA] => F[BaseTypeExpr[AA]]): F[BaseTypeExpr[AA]] = this match {
+      case CoreT(t) => t match {
+        case SimpleT(_) => f(this)
+        case TupleT(as, os) => (as traverse f).map(x => CoreT(TupleT(x, os)))
+        case ListT(a, os) => f(a).map(x => CoreT(ListT(x, os)))
+        case ArrayT(a, os) => f(a).map(x => CoreT(ArrayT(x, os)))
+      }
+      case AppT(op, args, os) => (args traverse f).map(AppT(op, _, os))
+      case ExtAppT(path, op, args, os) =>
+        args.traverse(f).map(ExtAppT(path, op, _, os))
+      case x => Applicative[F].pure(x)
   }
-}
-case class AppT(name: String,
-                types: List[BaseTypeExpr],
-                options: TypeOptions) extends BaseTypeExpr {
-  def freeVars(known: List[String]): List[String] = {
-    val ts = types flatMap (_ freeVars known)
-    if (known contains name) ts else name :: ts
-  }
-}
-case class ExtAppT(path: List[String],
-                   name: String,
-                   exprs: List[BaseTypeExpr],
-                   options: TypeOptions) extends BaseTypeExpr {
-  def freeVars(known: List[String]): List[String] =
-    exprs flatMap (_ freeVars known)
-}
-case class TypeParamT(p: TypeParam.Param) extends BaseTypeExpr {
-  def freeVars(known: List[String]): List[String] = {
-    val s = TypeParam toString p
-    if (known contains s) Nil else List(s)
-  }
-}
-
-sealed trait TypeExpr {
-  def freeVars(known: List[String]): List[String]
-}
-case class BaseT(t: BaseTypeExpr) extends TypeExpr {
-  def freeVars(known: List[String]): List[String] = t freeVars known
-}
-case class RecordT(record: RecordDataType[BaseTypeExpr],
-                   options: TypeOptions) extends TypeExpr {
-  def freeVars(known: List[String]): List[String] =
-    record.fields flatMap {
-      case Field(_, _, ty) => ty freeVars known
+  def traverse[M[_]:Applicative,B](f: A => M[B]): M[BaseTypeExpr[B]] = this match {
+    case CoreT(t) => t match {
+      case SimpleT(s) => (CoreT[B](SimpleT(s)):BaseTypeExpr[B]).pure[M]
+      case TupleT(as, os) => (as traverse (_ traverse f)).map(x => CoreT(TupleT(x, os)))
+      case ListT(bt, os) => (bt traverse f).map(x => CoreT(ListT(x, os)))
+      case ArrayT(bt, os) => (bt traverse f).map(x => CoreT(ArrayT(x, os)))
     }
+    case AppT(op, args, os) =>
+      ((op traverse f) |@| args.traverse(_ traverse f))(AppT(_, _, os))
+    case ExtAppT(path, op, args, os) =>
+      args.traverse(_ traverse f).map(ExtAppT(path, op, _, os))
+    case TypeParamT(p) => f(p).map(TypeParamT(_))
+  }
+  def flatMap[B](f: A => BaseTypeExpr[B]): BaseTypeExpr[B] = this match {
+    case CoreT(t) => CoreT[B](t match {
+      case SimpleT(s) => SimpleT(s)
+      case TupleT(as, os) => TupleT(as map (_ flatMap f), os)
+      case ListT(a, os) => ListT(a flatMap f, os)
+      case ArrayT(a, os) => ArrayT(a flatMap f, os)
+    })
+    case AppT(op, args, os) => AppT(op flatMap f, args map (_ flatMap f), os)
+    case ExtAppT(path, name, exprs, os) =>
+      ExtAppT(path, name, exprs.map(_ flatMap f), os)
+    case TypeParamT(p) => f(p)
+  }
 }
-case class SumT(sum: SumDataType[BaseTypeExpr], options: TypeOptions) extends TypeExpr {
-  def freeVars(known: List[String]): List[String] =
-    sum.constructors flatMap {
-      case NonConstant(_, as) => as flatMap (_ freeVars known)
-      case _ => Nil
+case class CoreT[A](t: CoreBaseTypeExpr[BaseTypeExpr[A]]) extends BaseTypeExpr[A]
+case class AppT[A](operator: BaseTypeExpr[A],
+                   operands: List[BaseTypeExpr[A]],
+                   options: TypeOptions) extends BaseTypeExpr[A]
+case class ExtAppT[A](path: List[String],
+                      name: String,
+                      exprs: List[BaseTypeExpr[A]],
+                      options: TypeOptions) extends BaseTypeExpr[A]
+case class TypeParamT[A](p: A) extends BaseTypeExpr[A]
+object BaseTypeExpr {
+  implicit val baseTypeExprInstance: Traverse[BaseTypeExpr] with Monad[BaseTypeExpr] =
+    new Traverse[BaseTypeExpr] with Monad[BaseTypeExpr] {
+      def traverseImpl[G[_]:Applicative,A,B](
+        fa: BaseTypeExpr[A])(f: A => G[B]): G[BaseTypeExpr[B]] = fa traverse f
+      def point[A](a: => A) = TypeParamT(a)
+      def bind[A,B](ma: BaseTypeExpr[A])(f: A => BaseTypeExpr[B]) = ma flatMap f
     }
 }
 
-case class Field[A](name: String, mutable: Boolean, tpe: A)
-case class RecordDataType[A](name: String, fields: List[Field[A]])
-case class SumDataType[A](name: String, constructors: List[DataConstructor[A]])
+sealed trait TypeExpr[+A] {
+  def freeVars: List[A] = Traverse[TypeExpr].toList(this)
+  def traverse[M[_]:Applicative,B](f: A => M[B]): M[TypeExpr[B]] = this match {
+    case BaseT(t) => (t.traverse[M,String,B](f)).map(BaseT(_))
+    case RecordT(r, os) => (r traverse (_ traverse f)).map(RecordT(_, os))
+    case SumT(s, os) => (s traverse (_ traverse f)).map(SumT(_, os))
+  }
+}
+case class BaseT[A](t: BaseScope[A]) extends TypeExpr[A]
+case class RecordT[A](record: RecordDataType[BaseScope[A]],
+                      options: TypeOptions) extends TypeExpr[A]
+case class SumT[A](sum: SumDataType[BaseScope[A]],
+                   options: TypeOptions) extends TypeExpr[A]
 
-sealed trait DataConstructor[A]
+case class Field[A](name: String, mutable: Boolean, tpe: A) {
+  def traverse[M[_]:Applicative,B](f: A => M[B]): M[Field[B]] =
+    f(tpe).map(Field(name, mutable, _))
+}
+object Field {
+  implicit val fieldInstance: Traverse[Field] = new Traverse[Field] {
+    def traverseImpl[G[_]:Applicative,A,B](
+      fa: Field[A])(f: A => G[B]): G[Field[B]] = fa traverse f
+  }
+}
+case class RecordDataType[A](name: String, fields: List[Field[A]]) {
+  def traverse[M[_]:Applicative,B](f: A => M[B]): M[RecordDataType[B]] =
+    fields.traverse(_ traverse f).map(RecordDataType(name, _))
+}
+case class SumDataType[A](name: String, constructors: List[DataConstructor[A]]) {
+  def traverse[M[_]:Applicative,B](f: A => M[B]): M[SumDataType[B]] =
+    constructors.traverse(_ traverse f).map(SumDataType(name, _))
+}
+object TypeExpr {
+  implicit val typeExprInstance: Traverse[TypeExpr] =
+    new Traverse[TypeExpr] {
+      def traverseImpl[G[_]:Applicative,A,B](
+        fa: TypeExpr[A])(f: A => G[B]): G[TypeExpr[B]] = fa traverse f
+    }
+}
+
+sealed trait DataConstructor[A] {
+  def traverse[M[_]:Applicative,B](f: A => M[B]): M[DataConstructor[B]] = this match {
+    case NonConstant(name, args) => args.traverse(f).map(NonConstant(name, _))
+    case Constant(name) => Applicative[M].pure(Constant(name))
+  }
+}
 case class Constant[A](name: String) extends DataConstructor[A]
 case class NonConstant[A](name: String, args: List[A]) extends DataConstructor[A]
+object DataConstructor {
+  implicit val dataconstructorInstance: Traverse[DataConstructor] =
+    new Traverse[DataConstructor] {
+      def traverseImpl[G[_]:Applicative,A,B](
+        fa: DataConstructor[A])(f: A => G[B]): G[DataConstructor[B]] = fa traverse f
+    }
+}
 
-sealed trait MessageExpr {
-  def freeVars(known: List[String]): List[String]
+// Message declarations are monomorphic, so we don't need Bound variables here
+sealed trait MessageExpr[A] {
+  def freeVars: List[A] = Traverse[MessageExpr].toList(this)
+  def traverse[M[_]:Applicative,B](f: A => M[B]): M[MessageExpr[B]] = this match {
+    case RecordM(fields) => fields.traverse(_ traverse (_ traverse f)).map(RecordM(_))
+    case AppM(name, ts, os) => ts.traverse(_ traverse f).map(AppM(name, _, os))
+    case MessageAlias(path, alias) => Applicative[M].pure(MessageAlias(path, alias))
+    case SumM(sum) => sum.traverse(_ traverse (_ traverse f)).map(SumM(_))
+  }
 }
-case class RecordM(fields: List[Field[BaseTypeExpr]]) extends MessageExpr {
-  def freeVars(known: List[String]): List[String] =
-    fields flatMap {
-      case Field(_, _, e) => e freeVars known
-    }
-}
-case class AppM(name: String,
-                types: List[BaseTypeExpr],
-                option: TypeOptions) extends MessageExpr {
-  def freeVars(known: List[String]): List[String] =
-    types flatMap { _ freeVars known }
-}
-case class MessageAlias(names: List[String], alias: String) extends MessageExpr {
-  def freeVars(known: List[String]): List[String] = Nil
-}
-case class SumM(sum: List[(String, MessageExpr)]) extends MessageExpr {
-  def freeVars(known: List[String]): List[String] =
-    sum flatMap {
-      case (_, e) => e freeVars known
-    }
+case class RecordM[A](fields: List[Field[BaseTypeExpr[A]]]) extends MessageExpr[A]
+case class AppM[A](name: String,
+                   types: List[BaseTypeExpr[A]],
+                   option: TypeOptions) extends MessageExpr[A]
+case class MessageAlias[A](names: List[String], alias: String) extends MessageExpr[A]
+case class SumM[A](sum: List[(String, MessageExpr[A])]) extends MessageExpr[A]
+object MessageExpr {
+  implicit val baseTypeTraverse: Traverse[MessageExpr] = new Traverse[MessageExpr] {
+    def traverseImpl[G[_]:Applicative,A,B](
+      fa: MessageExpr[A])(f: A => G[B]): G[MessageExpr[B]] = fa traverse f
+  }
 }
 
 sealed trait Declaration {
@@ -147,18 +190,18 @@ sealed trait Declaration {
   def freeTypeVariables: List[String]
 }
 case class MessageDecl(name: String,
-                       message: MessageExpr,
+                       message: MessageExpr[String],
                        options: TypeOptions) extends Declaration {
   def arity = 0
   def freeTypeVariables: List[String] =
-    message freeVars List(name)
+    message.freeVars.filterNot(_ == name)
 }
 case class TypeDecl(name: String,
-                    params: List[TypeParam.Param],
-                    tpe: TypeExpr,
+                    params: List[String],
+                    body: TypeExpr[String],
                     options: TypeOptions) extends Declaration {
   def arity = params.length
   def freeTypeVariables: List[String] =
-    tpe.freeVars(name :: params.map(TypeParam toString _))
+    body.freeVars.toList.filterNot((name :: params) contains _)
 }
 

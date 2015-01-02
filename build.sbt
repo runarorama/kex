@@ -32,6 +32,7 @@ scalacOptions ~= (so => (so filterNot Set("-unchecked", "-Xlint"))
                     ++ Seq("-Ywarn-nullary-override", "-Ywarn-inaccessible"))
 
 libraryDependencies ++= Seq("org.scalaz" %% "scalaz-core" % "7.0.+",
-                           "scala-parsers" %% "scala-parsers" % "0.1")
+                           "scala-parsers" %% "scala-parsers" % "0.1",
+                           "bound" %% "bound-core" % "1.2")
 
 resolvers += ("ermine" at "http://dl.bintray.com/ermine/maven/")

@@ -2,6 +2,9 @@ package extprot
 package compiler
 
 import ProtocolTypes._
+import scalaz._
+import Scalaz._
+import bound._
 
 sealed trait Error {
   def print: String
@@ -17,89 +20,86 @@ case class WrongArity(which: String, correct: Int, where: String, wrong: Int) ex
 }
 
 object Typer {
+  type S[+A] = State[Map[String, Int], ValidationNel[Error, A]]
+  type Check = S[Unit]
+
+  val Va = Validation.ValidationApplicative[NonEmptyList[Error]]
+  def Sa[S] = StateT.stateMonad[S]
+
+  val State = MonadState[State, Map[String,Int]]
+  import State._
+
+  implicit def checkApplicative[S] =
+    Sa[S].compose[({type f[x] = ValidationNel[Error,x]})#f](Va)
+
+  val ok: ValidationNel[Error, Unit] = ().successNel[Error]
+  val okok: Check = state(ok)
+
+  def forget[A,M[+_]:Monad](scope: Scope[A,M,A]): M[A] =
+    scope.instantiate(x => Monad[M].pure(x))
+
   def checkDeclarations(decls: List[Declaration]): List[Error] = {
-    def dupErrors(xs: List[Declaration]) = {
-      def loop(errs: List[Error],
-               bindings: Set[String],
-               ds: List[Declaration]): List[Error] = ds match {
-        case Nil => errs
-        case decl :: tl =>
-          val name = decl.name
-          if (bindings contains name)
-            loop(RepeatedBinding(name) :: errs, bindings, tl)
-          else
-            loop(errs, bindings + name, tl)
+    def dupErrors(decl: Declaration): Check = {
+      val name = decl.name
+      gets(_.keySet).flatMap { bindings =>
+        if (bindings contains name)
+          state(RepeatedBinding(name).failureNel)
+        else
+          modify(_ + (name -> 0)).map(_.success)
       }
-      loop(Nil, Set(), xs)
     }
-    def unboundTypeVars(ds: List[Declaration]) = {
-      def loop(es: List[Error],
-               bindings: Set[String],
-               ds: List[Declaration]): List[Error] = ds match {
-        case Nil => es
-        case decl :: tl =>
-          val name = decl.name
-          val errs = decl.freeTypeVariables.foldRight(es) { (n, l) =>
-            if (bindings contains n) l else UnboundTypeVar(name, n) :: l
-          }
-          loop(errs, bindings + decl.name, tl)
+    def unboundTypeVars(decl: Declaration): Check =
+      decl.freeTypeVariables.traverse_[S] { n =>
+        gets(_.keySet).map { bindings =>
+          if (bindings contains n) ok
+          else UnboundTypeVar(decl.name, n).failureNel
+        }
       }
-      loop(Nil, Set(), ds)
-    }
-    def wrongTypeArities(ds: List[Declaration]) = {
-      def loop(errs: List[Error],
-               as: Map[String, Int],
-               ds: List[Declaration]): List[Error] = ds match {
-        case Nil => errs
-        case decl :: tl =>
-          val name = decl.name
-          val arities = as + (name -> decl.arity)
-          def foldApp(acc: List[Error], s: String, params: List[BaseTypeExpr]): List[Error] = {
-            val expected = params.length
-            val es = arities.get(s) match {
-              case None => acc
-              case Some(n) if n == expected => acc
-              case Some(n) => List(WrongArity(s, n, name, expected))
-            }
-            params.foldLeft(es)(foldBaseType)
-          }
-          def foldBaseType(acc: List[Error], t: BaseTypeExpr): List[Error] = t match {
-            case AppT(s, params, _) => foldApp(acc, s, params)
-            case ExtAppT(_, _, tys, _) => tys.foldLeft(acc)(foldBaseType)
-            case CoreT(ListT(t, _)) => foldBaseType(acc, t)
-            case CoreT(ArrayT(t, _)) => foldBaseType(acc, t)
-            case CoreT(TupleT(l, _)) => l.foldLeft(acc)(foldBaseType)
-            case _ => acc
-          }
-          def foldMsg(acc: List[Error], e: MessageExpr): List[Error] = e match {
-            case RecordM(r) => r.foldLeft(acc) {
-              case (errs, Field(_, _, ty)) => foldBaseType(errs, ty)
-            }
-            case MessageAlias(_, _) => acc
-            case AppM(s, params, _) => foldApp(acc, s, params)
-            case SumM(l) => l.foldLeft(acc) {
-              case (errs, (_, msg)) => foldMsg(errs, msg)
-            }
-          }
-          def foldType(acc: List[Error], ty: TypeExpr): List[Error] = ty match {
-            case BaseT(bty) => foldBaseType(acc, bty)
-            case RecordT(r, _) => r.fields.foldLeft(acc) {
-              case (errs, Field(_, _, ty)) => foldBaseType(errs, ty)
-            }
-            case SumT(sum, _) => sum.constructors.foldLeft(acc) {
-              case (errs, NonConstant(_, as)) =>
-                as.foldLeft(errs)(foldBaseType)
-              case (errs, _) => errs
-            }
-          }
-          decl match {
-            case MessageDecl(_, msg, _) => loop(foldMsg(errs, msg), arities, tl)
-            case TypeDecl(_, _, ty, _) => loop(foldType(errs, ty), arities, tl)
-          }
+    def wrongTypeArities(decl: Declaration): Check = {
+      def checkMsg(msg: MessageDef): Check = msg match {
+        case RecordM(r) => r.traverse_[S] {
+          case Field(_, _, ty) => checkBaseType(ty)
+        }
+        case AppM(s, params, _) => checkApp(s, params)
+        case SumM(ms) => ms.traverse_(m => checkMsg(m._2))
+        case x => okok
       }
-      loop(Nil, Map(), ds)
+      def checkType(ty: Type) = ty match {
+        case BaseT(scope) => checkBaseType(forget(scope))
+        case RecordT(r, _) => r.fields.traverse {
+          case Field(_, _, scope) => checkBaseType(forget(scope))
+        }
+        case SumT(sum, _) => sum.constructors.traverse_[S] {
+          case NonConstant(_, as) => as.traverse_[S](scope => checkBaseType(forget(scope)))
+          case _ => okok
+        }
+      }
+      def checkBaseType(ty: BaseType): Check = ty.plate[S, String] {
+        // Inline application of types is disallowed by the parser,
+        // otherwise we'd need a kind check here
+        case sub@AppT(TypeParamT(s), params, _) => checkApp(s, params).map(_ => sub.success)
+        case x => state(x.success)
+      }.map(_ => ok)
+      def checkApp(v: String, args: List[BaseType]) =
+        get.map { arities =>
+          val expected = args.length
+          arities.get(v) match {
+            case Some(n) if n != expected => WrongArity(v, n, decl.name, expected).failureNel
+            case _ => ok
+          }
+        }
+      for {
+        _ <- modify(_ + (decl.name -> decl.arity)).map(_.success)
+        _ <- decl match {
+          case MessageDecl(_, msg, _) => checkMsg(msg)
+          case TypeDecl(_, _, ty, _) => checkType(ty)
+        }
+      } yield ok
     }
-    dupErrors(decls) ++ unboundTypeVars(decls) ++ wrongTypeArities(decls)
+    decls.traverse_[S](d =>
+      List(dupErrors _,
+           unboundTypeVars _,
+           wrongTypeArities _).traverse_[S](_(d))).eval(Map()).fold(_.list, _ => Nil)
   }
 }
 
