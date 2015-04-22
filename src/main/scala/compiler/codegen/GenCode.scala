@@ -10,6 +10,8 @@ object GenCode {
                      params: List[String],
                      args: List[LowLevel]): Bindings =
     (params, args).zipped.foldLeft(bindings)(_ + _)
+  */
+  /*
 
   def betaReduceTexpr(bindings: Bindings, texpr: P.BaseType): ReducedType = {
     def aux(bindings: Bindings, x: P.BaseType): ReducedType =

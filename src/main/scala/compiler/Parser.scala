@@ -2,25 +2,19 @@ package extprot
 package compiler
 
 import scalaz._
-import Scalaz._
 import bound._
+import atto._
+import Atto._
+import atto.Parser._
+import scalaz.syntax.monad._
 
 object Parser {
   import ProtocolTypes._
 
-  def apply(s: String) = runParser(declarations, s) match {
-    case Left(e) => \/.left(e.pretty.toString)
-    case Right((_, r)) => \/.right(r)
-  }
-
-  import scalaparsers.Document._
-  import scalaparsers.Diagnostic._
-
-  val P = new scalaparsers.Parsing[Unit] {}
-  import P._
+  def apply(s: String): ParseResult[List[Declaration]] = parse(declarations, s)
 
   implicit class Scope[A](p: Parser[A]) {
-    def |:(s: String): Parser[A] = p scope s
+    def |:(s: String): Parser[A] = p named s
   }
 
   // Skip lines, comments, or horizontal white space
@@ -33,7 +27,7 @@ object Parser {
 
   lazy val messageDecl: Parser[Declaration] = "message declaration" |: {
     for {
-      name <- token("message") >> lident << token("=")
+      name <- string("message") *> lident <* string("=")
       e <- msgExpr
       opts <- typeOptions
     } yield MessageDecl(name, e, opts)
@@ -41,9 +35,9 @@ object Parser {
 
   lazy val typeDecl: Parser[Declaration] = "type declaration" |: {
     for {
-      name <- token("type") >> lident
-      par <- "'" >> lident.many
-      e <- token("=") >> typeExpr(name, par)
+      name <- string("type") *> lident
+      par <- string("'") *> lident.many
+      e <- string("=") *> typeExpr(name, par)
       opts <- typeOptions
     } yield {
       val ee = e match {
@@ -56,99 +50,95 @@ object Parser {
   }
 
   lazy val declaration: Parser[Declaration] =
-    skipLWS >> (messageDecl | typeDecl)
+    skipLWS *> (messageDecl | typeDecl)
 
   lazy val typeOptions: Parser[TypeOptions] = "type options" |: {
-    (token("options") >> typeOptionValues.many.map(_.toMap)) | unit(noops)
+    (string("options") *> typeOptionValues.many.map(_.toMap)) | ok(noops)
   }
 
   lazy val newline: Parser[Unit] =
-    satisfy(c => c == '\r' || c == '\n').skip scope "newline"
+    skip(c => c == '\r' || c == '\n') named "newline"
 
   lazy val whitespace: Parser[Unit] =
-    satisfy(c => c.isWhitespace && c != '\r' && c != '\n').skip scope "whitespace"
+    skip(c => c.isWhitespace && c != '\r' && c != '\n') named "whitespace"
 
   lazy val typeOptionValues =
-    (stringLiteral << token("=")).map2(stringLiteral)((_, _))
+    (stringLiteral <* string("=")) ~ stringLiteral
 
   def toScope(args: List[String])(t: BaseType): BaseScope[String] =
     abstrakt[BaseTypeExpr, String, String](t)(x => args find (a => a == x))
 
   def typeExpr(name: String, args: List[String]): Parser[Type] = (s"top-level type $name" |:(
-    constDeclarations.sepBy1(token("|")).map(
-      cs => SumT(SumDataType(name, cs.map(_.map(toScope(args)))), noops)) |
+    constDeclarations.sepBy1(string("|")).map(
+      cs => SumT(SumDataType(name, cs.map(_.map(toScope(args))).list), noops)) |
     recordType(name, args)
   )) | (s"simple type $name" |: typeExprSimple.map(t => BaseT(toScope(args)(t))))
 
   lazy val constDeclarations: Parser[DataConstructor[BaseType]] =
     "data constructor declaration" |: {
-      uident.map2(constParams)(NonConstant[BaseType](_,_)) |
+      (uident |@| constParams)(NonConstant[BaseType](_,_)) |
       uident.map(Constant[BaseType](_))
     }
 
-  lazy val constParams: Parser[List[BaseType]] =
-    typeExprSimple.some
-
-  def bracket[A](p: => Parser[A]) = leftBracket >> (p << right)
-  def envelope[A](p: => Parser[A]) = leftEnvelope >> (p << right)
-  def brace[A](p: => Parser[A]) = leftBrace >> (p << right)
+  lazy val constParams: Parser[NonEmptyList[BaseType]] =
+    typeExprSimple.many1
 
   lazy val typeExprSimple: Parser[BaseType] =
-    (bracket(typeExprSimple).map(x => CoreT(ListT(x, noops))) |
-     envelope(typeExprSimple).map(x => CoreT(ArrayT(x, noops))) |
-     tuple |
-     (for {
-       n <- lident << token("<")
-       targs <- typeExprSimple.sepBy1(token(",")) << token(">")
-     } yield AppT(TypeParamT(n), targs, noops)).attempt |
-     (token("'") >> lident.map(TypeParamT(_))) |
-     lident.map(n => AppT(TypeParamT(n), Nil, noops)) |
-     identWithPath.map({
-       case (path, name) => ExtAppT(path, name, Nil, noops)
-     })) |
-    (token("bool") >> unit(BoolT(noops)) |
-    token("byte") >> unit(ByteT(noops)) |
-    token("int") >> unit(IntT(noops)) |
-    token("long") >> unit(LongT(noops)) |
-    token("float") >> unit(FloatT(noops)) |
-    token("string") >> unit(StringT(noops))).map(_.base)
+    squareBrackets(typeExprSimple).map(x => CoreT(ListT(x, noops))) |
+    envelopes(typeExprSimple).map(x => CoreT(ArrayT(x, noops))) |
+    tuple |
+    (for {
+      n <- lident <* string("<")
+      targs <- typeExprSimple.sepBy1(string(",")) <* string(">")
+    } yield AppT(TypeParamT(n), targs.list, noops)) |
+    (string("'") *> lident.map(TypeParamT(_))) |
+    lident.map(n => AppT(TypeParamT(n), List[BaseType](), noops)) |
+    identWithPath.map({
+      case (path, name) => ExtAppT(path, name, List[BaseType](), noops)
+    }) | (
+      string("bool") *> ok(BoolT(noops)) |
+      string("byte") *> ok(ByteT(noops)) |
+      string("int") *> ok(IntT(noops)) |
+      string("long") *> ok(LongT(noops)) |
+      string("float") *> ok(FloatT(noops)) |
+      string("string") *> ok(StringT(noops))).map(_.base[String])
 
   lazy val identWithPath: Parser[(List[String], String)] = (for {
-    p <- uident << "."
+    p <- uident <* char('.')
     n <- lident
   } yield (List(p), n)) |
   (for {
-    p <- uident << "."
+    p <- uident <* char('.')
     p1 <- identWithPath
     (p2, n) = p1
   } yield (p :: p2, n))
 
   lazy val tuple = "tuple" |:
-    paren(typeExprSimple.sepBy1(token("*"))).map(x => CoreT(TupleT(x, noops)))
+    typeExprSimple.sepBy1(string("*")).map(x => CoreT(TupleT(x.list, noops))).parens
 
   def recordType(name: String, args: List[String]): Parser[Type] = "record type" |:
-    brace(fieldList).map(fs =>
+    braces(fieldList).map(fs =>
       RecordT(RecordDataType(name, fs.map(_.map(a => toScope(args)(a)))), noops))
 
   lazy val fieldList: Parser[List[Field[BaseType]]] = "field list" |: {
-    (field << token(";")).map2(fieldList)(_ :: _).attempt |
-    (field << token(";")).map(List(_)).attempt |
+    (field <* string(";") |@| fieldList)(_ :: _) |
+    (field <* string(";")).map(List(_)) |
     field.map(List(_))
   }
 
   lazy val field = "field" |: {
-    (lident << token(":")).map2(typeExprSimple)(Field(_, false, _)) |
-    (token("mutable") >> lident << token(":")).map2(typeExprSimple)(
+    (lident <* string(":") |@| typeExprSimple)(Field(_, false, _)) |
+    (string("mutable") *> lident <* string(":") |@| typeExprSimple)(
       Field(_, true, _))
   }
 
   lazy val recordApp: Parser[MessageDef] =
-    (lident << token("<")).map2(
-      typeExprSimple.sepBy1(token(",")) << token(">"))(AppM(_, _, noops)) |
+    (lident <* string("<") |@|
+      (typeExprSimple.sepBy1(string(",")) <* string(">")))((x, y) => AppM(x, y.list, noops)) |
     lident.map(AppM(_, Nil, noops))
 
   lazy val record = "record" |:
-    brace(fieldList).map(RecordM(_))
+    braces(fieldList).map(RecordM(_))
 
   lazy val recordOrApp: Parser[MessageDef] = record | recordApp
 
@@ -156,36 +146,23 @@ object Parser {
     recordOrApp | (uident flatMap complexMsgExpr)
 
   def complexMsgExpr(n: String): Parser[MessageDef] =
-    (token(".") >> uident.sepBy(token("."))).map2(lident) {
+    (string(".") *> uident.sepBy(string(".")) |@| lident) {
       (p, name) => MessageAlias[String](n :: p, name)
     } |
     recordOrApp.map(x => SumM[String](List((n, x)))) |
     (for {
-      x <- recordOrApp << token("|")
-      l <- (uident ++ recordOrApp).sepBy1(token("|"))
-    } yield SumM[String]((n, x) :: l))
+      x <- recordOrApp <* string("|")
+      l <- (uident ~ recordOrApp).sepBy1(string("|"))
+    } yield SumM[String]((n, x) :: l.list))
 
-  lazy val lident = ident(lower) scope "identifier starting with lowercase"
-  lazy val uident = ident(upper) scope "identifier starting with uppercase"
+  lazy val lident = ident(lower) named "identifier starting with lowercase"
+  lazy val uident = ident(upper) named "identifier starting with uppercase"
 
   def ident(p: Parser[Char]): Parser[String] =
-    token(p.map2(takeWhile(isCont))(_ +: _).map(_.mkString))
+    (p |@| takeWhile(isCont))(_ +: _).map(_.mkString)
 
   def isCont(c: Char) = Character.isLetterOrDigit(c) || c == '_' || c == '-'
 
   def takeWhile(p: Char => Boolean): Parser[List[Char]] = satisfy(p).many
 
-  import scalaparsers.ParseState
-  import scalaparsers.Supply
-  import scalaparsers.Pos
-
-  def apply(input: String, fileName: String) =
-    runParser(declarations, input, fileName)
-
-  def runParser[A](p: Parser[A], input: String, fileName: String = "") =
-    p.run(ParseState(
-      loc = Pos.start(fileName, input),
-      input = input,
-      s = (),
-      layoutStack = List()), Supply.create)
 }

@@ -20,7 +20,7 @@ case class WrongArity(which: String, correct: Int, where: String, wrong: Int) ex
 }
 
 object Typer {
-  type S[+A] = State[Map[String, Int], ValidationNel[Error, A]]
+  type S[A] = State[Map[String, Int], ValidationNel[Error, A]]
   type Check = S[Unit]
 
   val Va = Validation.ValidationApplicative[NonEmptyList[Error]]
@@ -35,7 +35,7 @@ object Typer {
   val ok: ValidationNel[Error, Unit] = ().successNel[Error]
   val okok: Check = state(ok)
 
-  def forget[A,M[+_]:Monad](scope: Scope[A,M,A]): M[A] =
+  def forget[A,M[_]:Monad](scope: Scope[A,M,A]): M[A] =
     scope.instantiate(x => Monad[M].pure(x))
 
   def checkDeclarations(decls: List[Declaration]): List[Error] = {
@@ -74,7 +74,7 @@ object Typer {
           case _ => okok
         }
       }
-      def checkBaseType(ty: BaseType): Check = ty.plate[S, String] {
+      def checkBaseType(ty: BaseType): Check = ty.plate[S] {
         // Inline application of types is disallowed by the parser,
         // otherwise we'd need a kind check here
         case sub@AppT(TypeParamT(s), params, _) => checkApp(s, params).map(_ => sub.success)

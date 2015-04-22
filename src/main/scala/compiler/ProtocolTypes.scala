@@ -20,7 +20,7 @@ object ProtocolTypes {
       case _ => None
     }
 
-  def nonConstantConstructors[A](sum: SumDataType[A]): List[(String, List[A])] =
+  def nonConstantConstructors[A](sum: SumDataType[A]): List[(String, NonEmptyList[A])] =
     sum.constructors.flatMap {
       case NonConstant(n, l) => Some(n -> l)
       case _ => None
@@ -45,10 +45,10 @@ case class TupleT[A](as: List[A], options: TypeOptions) extends CoreBaseTypeExpr
 case class ListT[A](a: A, options: TypeOptions) extends CoreBaseTypeExpr[A]
 case class ArrayT[A](a: A, options: TypeOptions) extends CoreBaseTypeExpr[A]
 
-sealed trait BaseTypeExpr[+A] {
+sealed trait BaseTypeExpr[A] {
   def freeVars: List[A] = Traverse[BaseTypeExpr].toList(this)
-  def plate[F[_]:Applicative, AA >: A](
-    f: BaseTypeExpr[AA] => F[BaseTypeExpr[AA]]): F[BaseTypeExpr[AA]] = this match {
+  def plate[F[_]:Applicative](
+    f: BaseTypeExpr[A] => F[BaseTypeExpr[A]]): F[BaseTypeExpr[A]] = this match {
       case CoreT(t) => t match {
         case SimpleT(_) => f(this)
         case TupleT(as, os) => (as traverse f).map(x => CoreT(TupleT(x, os)))
@@ -105,10 +105,10 @@ object BaseTypeExpr {
     }
 }
 
-sealed trait TypeExpr[+A] {
+sealed trait TypeExpr[A] {
   def freeVars: List[A] = Traverse[TypeExpr].toList(this)
   def traverse[M[_]:Applicative,B](f: A => M[B]): M[TypeExpr[B]] = this match {
-    case BaseT(t) => (t.traverse[M,String,B](f)).map(BaseT(_))
+    case BaseT(t) => (t.traverse(f)).map(BaseT(_))
     case RecordT(r, os) => (r traverse (_ traverse f)).map(RecordT(_, os))
     case SumT(s, os) => (s traverse (_ traverse f)).map(SumT(_, os))
   }
@@ -152,7 +152,7 @@ sealed trait DataConstructor[A] {
   }
 }
 case class Constant[A](name: String) extends DataConstructor[A]
-case class NonConstant[A](name: String, args: List[A]) extends DataConstructor[A]
+case class NonConstant[A](name: String, args: NonEmptyList[A]) extends DataConstructor[A]
 object DataConstructor {
   implicit val dataconstructorInstance: Traverse[DataConstructor] =
     new Traverse[DataConstructor] {
