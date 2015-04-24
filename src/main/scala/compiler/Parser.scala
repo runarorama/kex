@@ -41,7 +41,7 @@ object Parser {
   lazy val typeDecl: Parser[Declaration] = "type declaration" |: {
     for {
       name <- t("type") *> t(lident)
-      par <- t(char(''') *> lident).many
+      par <- t(string("'") *> lident).many
       e <- t("=") *> typeExpr(name, par)
       opts <- typeOptions
     } yield {
