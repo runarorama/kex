@@ -58,7 +58,7 @@ object Parser {
     t(messageDecl | typeDecl)
 
   lazy val typeOptions: Parser[TypeOptions] = "type options" |: {
-    (string("options") *> typeOptionValues.many.map(_.toMap)) | ok(noops)
+    (t("options") *> typeOptionValues.many.map(_.toMap)) | ok(noops)
   }
 
   lazy val newline: Parser[Unit] =
@@ -68,7 +68,7 @@ object Parser {
     skip(c => c.isWhitespace && c != '\r' && c != '\n') named "whitespace"
 
   lazy val typeOptionValues =
-    (stringLiteral <* string("=")) ~ stringLiteral
+    (t(stringLiteral) <* t("=")) ~ t(stringLiteral)
 
   def toScope(args: List[String])(t: BaseType): BaseScope[String] =
     abstrakt[BaseTypeExpr, String, String](t)(x => args find (a => a == x))
@@ -175,7 +175,7 @@ object Parser {
   def ident(p: Parser[Char]): Parser[String] =
     ^(p, takeWhile(isCont))(_ +: _).map(_.mkString)
 
-  def isCont(c: Char) = Character.isLetterOrDigit(c) || c == '_' || c == '-'
+  def isCont(c: Char) = Character.isLetterOrDigit(c) || c == '_' || c == '-' || c == '''
 
   def takeWhile(p: Char => Boolean): Parser[List[Char]] = satisfy(p).many
 

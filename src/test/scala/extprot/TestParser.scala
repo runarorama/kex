@@ -6,9 +6,9 @@ import org.scalacheck._
 object TestParser {
   def go = {
 
-    val files = List("/test.proto", "/simple.proto", "/grafff.proto", "/address_book.proto")
+    val files = List("/test.proto", "/simple.proto", "/grafff.proto", "/address_book.proto", "/test_types.proto")
 
-    import compiler.Parser
+    import compiler.{Parser, Typer}
     import atto._
     import Atto._
     import ParseResult._
@@ -20,7 +20,13 @@ object TestParser {
             println(s"Unexpected input: $input")
             false
           }
-          else true
+          else {
+            val typeErrors = Typer.checkDeclarations(a)
+            typeErrors.foldLeft(true) { (a, b) =>
+              println(b)
+              false
+            }
+          }
         case Fail(input, stack, message) =>
           println(s"Failed parsing $f: $message\nInput was:'$input'\nStack trace: $stack\n")
           false
