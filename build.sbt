@@ -28,6 +28,8 @@ javacOptions ++=
   Seq("-Xlint:cast", "-Xlint:deprecation", "-Xlint:empty",
       "-Xlint:finally", "-Xlint:fallthrough", "-Xlint:overrides")
 
+javaOptions ++= Seq("-XX:MaxJavaStackTraceDepth=1000000 -Dscala.color")
+
 parallelExecution := true
 
 javacOptions += "-Xlint"
@@ -40,3 +42,4 @@ libraryDependencies ++= Seq("org.scalaz" %% "scalaz-core" % "7.1.+",
                            "org.tpolecat" %% "atto-spire" % "0.4.1",
                            "bound" %% "bound-core" % "1.3.+")
 
+libraryDependencies += "org.scalacheck" %% "scalacheck" % "1.12.2" % "test"

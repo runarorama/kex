@@ -1,0 +1,31 @@
+type id = int
+type tuple4 'a 'b 'c 'd = ('a * 'b * 'c * 'd)
+type dim 'x =
+   A int
+ | B float
+ | C float int [string] (float * [|bool|] * [[string]])
+ | D 'x
+
+type source = One | Some_other
+
+type a = (int * int)
+
+type meta 'a = Unset | Set source 'a
+
+message metadata = {
+  author : meta<string>;
+  pages : meta<int>
+}
+
+message doc =
+   Normal {
+     normal_id : id;
+     mutable dim : dim<int>;
+     normal_name : string;
+     metadata : metadata
+   }
+ | Simple {
+     simple_id : id;
+     simple_name : string
+ }
+
