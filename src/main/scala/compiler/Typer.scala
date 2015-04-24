@@ -20,7 +20,8 @@ case class WrongArity(which: String, correct: Int, where: String, wrong: Int) ex
 }
 
 object Typer {
-  type S[A] = State[Map[String, Int], ValidationNel[Error, A]]
+  type V[A] = ValidationNel[Error, A]
+  type S[A] = State[Map[String, Int], V[A]]
   type Check = S[Unit]
 
   val Va = Validation.ValidationApplicative[NonEmptyList[Error]]
@@ -30,9 +31,9 @@ object Typer {
   import State._
 
   implicit def checkApplicative[S] =
-    Sa[S].compose[({type f[x] = ValidationNel[Error,x]})#f](Va)
+    Sa[S].compose[V](Va)
 
-  val ok: ValidationNel[Error, Unit] = ().successNel[Error]
+  val ok: V[Unit] = ().successNel[Error]
   val okok: Check = state(ok)
 
   def forget[A,M[_]:Monad](scope: Scope[A,M,A]): M[A] =
@@ -64,9 +65,9 @@ object Typer {
         case SumM(ms) => ms.traverse_(m => checkMsg(m._2))
         case x => okok
       }
-      def checkType(ty: Type) = ty match {
+      def checkType(ty: Type): Check = ty match {
         case BaseT(scope) => checkBaseType(forget(scope))
-        case RecordT(r, _) => r.fields.traverse {
+        case RecordT(r, _) => r.fields.traverse_ {
           case Field(_, _, scope) => checkBaseType(forget(scope))
         }
         case SumT(sum, _) => sum.constructors.traverse_[S] {
@@ -74,27 +75,33 @@ object Typer {
           case _ => okok
         }
       }
-      def checkBaseType(ty: BaseType): Check = ty.plate[S] {
-        // Inline application of types is disallowed by the parser,
-        // otherwise we'd need a kind check here
-        case sub@AppT(TypeParamT(s), params, _) => checkApp(s, params).map(_ => sub.success)
-        case x => state(x.success)
-      }.map(_ => ok)
-      def checkApp(v: String, args: List[BaseType]) =
+      def checkBaseType(ty: BaseType): Check = {
+        def chap(t: BaseType): S[BaseType] = t match {
+          // Inline application of types is disallowed by the parser,
+          // otherwise we'd need a kind check here
+          case sub@AppT(TypeParamT(s), params, _) =>
+            checkApp(s, params).map(_.map(_ => sub))
+          case x => state(x.success)
+        }
+        (chap(ty) |@| ty.plate[S](chap))(((x: BaseType), (y: BaseType)) => ())
+      }
+      def checkApp(v: String, args: List[BaseType]) = {
         get.map { arities =>
           val expected = args.length
           arities.get(v) match {
-            case Some(n) if n != expected => WrongArity(v, n, decl.name, expected).failureNel
+            case Some(n) if n != expected =>
+              WrongArity(v, n, decl.name, expected).failureNel
             case _ => ok
           }
         }
+      }
       for {
         _ <- modify(_ + (decl.name -> decl.arity)).map(_.success)
-        _ <- decl match {
+        e <- decl match {
           case MessageDecl(_, msg, _) => checkMsg(msg)
           case TypeDecl(_, _, ty, _) => checkType(ty)
         }
-      } yield ok
+      } yield e
     }
     decls.traverse_[S](d =>
       List(dupErrors _,

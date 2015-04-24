@@ -1,0 +1,26 @@
+
+type id = int
+type dup =
+   A int
+ | B float
+ | C float int [string] (float * [|bool|] * [[string]])
+ | D
+
+message doc = { id : id; mutable dup : dup; name : string }
+
+(* Duplicate type declaration *)
+type dup = int
+
+type set_by = Serv1 | Serv2
+type meta 'a = (set_by * 'a)
+
+(* Constructor not applied to enough arguments *)
+type wrong_arity2 = meta
+
+(* Constructor applied to wrong number of arguments*)
+type wrong_arity1 = (meta<int, string> * meta)
+
+(* Unbound types noo, bar, and baz, wrong arity *)
+type unbound = meta< noo<int>, bar<baz, int> >
+
+
