@@ -38,8 +38,7 @@ scalacOptions ~= (so => (so filterNot Set("-unchecked", "-Xlint"))
                     ++ Seq("-Ywarn-nullary-override", "-Ywarn-inaccessible"))
 
 libraryDependencies ++= Seq("org.scalaz" %% "scalaz-core" % "7.1.+",
-                           "org.tpolecat" %% "atto-core" % "0.4.2-SNAPSHOT",
-                           "org.tpolecat" %% "atto-spire" % "0.4.1",
+                           "org.tpolecat" %% "atto-core" % "0.4.2.1r",
                            "bound" %% "bound-core" % "1.3.+")
 
 libraryDependencies += "org.scalacheck" %% "scalacheck" % "1.12.2" % "test"
