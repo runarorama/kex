@@ -39,6 +39,7 @@ scalacOptions ~= (so => (so filterNot Set("-unchecked", "-Xlint"))
 
 libraryDependencies ++= Seq("org.scalaz" %% "scalaz-core" % "7.1.+",
                            "org.tpolecat" %% "atto-core" % "0.4.2.1r",
-                           "bound" %% "bound-core" % "1.3.+")
+                           "bound" %% "bound-core" % "1.3.0")
 
-libraryDependencies += "org.scalacheck" %% "scalacheck" % "1.12.2" % "test"
+libraryDependencies ++= Seq("org.scalacheck" %% "scalacheck" % "1.12.2" % "test",
+                            "bound"          %% "bound-scalacheck-binding"  % "1.3.0" % "test")
