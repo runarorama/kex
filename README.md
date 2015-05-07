@@ -1,4 +1,4 @@
-extprot
-=======
+Bendy
+=====
 
-Extensible protocols for Scala
+A language for generating extensible protocols in Scala
