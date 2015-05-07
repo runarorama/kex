@@ -1,4 +1,4 @@
-name := "extprot-scala"
+name := "bendy"
 
 version := "0.1"
 
