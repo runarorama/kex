@@ -1,4 +1,4 @@
 Kex
 ===
 
-A language for generating extensible protocols in Scala
+A language for creating extensible protocols in Scala
