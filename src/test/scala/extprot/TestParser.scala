@@ -35,7 +35,7 @@ object TestParser {
 
   def go = {
 
-    val files = List("/test.proto", "/simple.proto", "/grafff.proto", "/address_book.proto", "/test_types.proto")
+    val files = List("/test.kex", "/simple.kex", "/grafff.kex", "/address_book.kex", "/test_types.kex")
 
     files.foldLeft(true)((a, b) => a && parseFile(b).map(typeCheck).getOrElse(false))
   }

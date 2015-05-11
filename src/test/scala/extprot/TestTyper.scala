@@ -9,7 +9,7 @@ import ParseResult._
 
 object TestTyper {
   def go = {
-    TestParser.parseFile("/type_errors.proto") match {
+    TestParser.parseFile("/type_errors.kex") match {
       case Some(decls) =>
         val errors = Typer.checkDeclarations(decls)
         // The file should have 8 type errors
