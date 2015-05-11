@@ -1,4 +1,4 @@
-package extprot
+package kex
 package compiler
 
 import ProtocolTypes._
