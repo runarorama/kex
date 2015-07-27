@@ -22,6 +22,8 @@ type brush =
 
 message grafff1 = { objects : [ (shape * byte * brush) ] }
 
+message foo = [int] | [|int|] | (|int|)
+
 (***************************************************************************)
 
 (* Grafff 2.0 *)

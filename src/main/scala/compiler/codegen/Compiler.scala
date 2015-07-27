@@ -23,7 +23,7 @@ object Compiler extends MacrosCompatibility {
       }).either.fold(e => c.abort(c.enclosingPosition, e), a => a)
 
     // Generate the scala code
-    val body: Tree = ??? // codegen.GenCode.generateScala(c)(decls)
+    val body: Tree = codegen.GenCode.generateScala(c)(decls)
 
     // Generate the target object
     val result = annottees.map(_.tree).toList match {

@@ -2,9 +2,126 @@ package kex
 package compiler
 package codegen
 
+trait GenCode[A] {
+  type Container
+
+  def generateContainer(bs: Bindings, decl: Declaration): Option[Container]
+  def msgDeclGenerators: Map[String, MsgDeclGenerator[Container]]
+  def typeDeclGenerators: Map[String, TypeDeclGenerator[Container]]
+  def generateCode(containers: List[Container]): A
+}
+
+trait MsgDeclGenerator[C] {
+  def apply(bindings: Bindings,
+            name: String,
+            expr: MessageDef,
+            opts: TypeOptions,
+            cont: C): C
+}
+
+trait TypeDeclGenerator[C] {
+  def apply(bindings: Bindings,
+            name: String,
+            params: List[String],
+            expr: Type,
+            opts: TypeOptions,
+            cont: C): C
+}
+
+object GenScala extends MacrosCompatibility {
+
+  class Generator(ctx: Context) extends GenCode[ctx.Tree] {
+
+    type AST = ctx.Tree
+
+    case class ScalaContainer(
+      name: String,
+      importModules: Option[AST],
+      types: Option[AST],
+      reader: Option[AST],
+      ioReader: Option[AST],
+      prettyPrinter: Option[AST],
+      writer: Option[AST],
+      defaultFunction: Option[AST]
+    )
+
+    type Container = ScalaContainer
+
+    def emptyContainer(name: String, func: Option[AST], types: AST) =
+      ScalaContainer(name, None, Some(types), None, None, None, None, func)
+
+    def defaultValue(v: LowLevel): Option[AST] = v match {
+      case Vint(VBool) => Some(q"false")
+      case Sum(xs, _) => xs.flatMap {
+        case Constant(x) => Some(q"${ctx.parse(x.typ.capitalize)}.${ctx.parse(x.name)}")
+        case _ => None
+      }
+      case Htuple(HList, _, _) => Some(q"List()")
+      case Htuple(HArray, _, _) => Some(q"Array()")
+      case LLMessage(path, name, _) =>
+        val fullPath = path ++ List(name.capitalize)
+        val id = identWithPath(ctx)(fullPath, s"${name}_default")
+        Some(q"$id")
+      case Tuple(tys) => tys.traverse(defaultValue).map {
+        case Nil      => sys.error("defaultValue: empty tuple")
+        case _ :: Nil => sys.error("defaultValue: tuple with only 1 element")
+        case x :: xs  => q"($x, ..$xs)"
+      }
+      case _ => None
+    }
+
+    def lookupOption(name: String, opts: TypeOptions, global: Boolean = false): Option[String] =
+      if (global) opts.get(name) else opts.get(s"scala.$name")
+
+    def parseType(ty: String) = {
+      val q"type T = $t" = ctx.parse(s"type T = $ty")
+      t
+    }
+
+    def parseExpr(exp: String) = {
+      val q"val x = $e" = ctx.parse(s"val x = $expr")
+      e
+    }
+
+    import java.util.regex.Pattern.quote
+
+    def getTypeInfo(opts: TypeOptions): Option[(ctx.Tree, ctx.Tree, ctx.Tree)] =
+      lookupOption("type", opts).map {
+        v => v.split(",").map(_.trim) match {
+          case List(ty, from, to) =>
+            Some((parseType(ty), parseExpr(from), parseExpr(to)))
+          case _ => None
+        }
+      }
+
+    def getType(default: ctx.Tree, opts: TypeOptions): ctx.Tree =
+      getTypeInfo(opts).map(_._1).getOrElse(default)
+
+    def generateContainer(bindings: Bindings): ScalaContainer = {
+      def typeDecl(name: String, ctyp: ctx.Tree, params: List[String] = List()) =
+
+    }
+  }
+}
+
+case class BadOption(msg: String) extends Exception
+
 object GenCode {
+
   import Types._
   val P = ProtocolTypes
+
+  def generateScala(c: Context)(decls: List[Declaration]) = {
+    val bindings = collectBindings(decls)
+    decls.flatMap { decl =>
+      generateContainer(bindings).map { cont =>
+        decl match {
+          case TypeDecl(name, params, expr, opts) =>
+            typeDeclGenerators.foldLeft
+        }
+      }
+    }
+  }
 
   /*def updateBindings(bindings: Bindings,
                      params: List[String],
