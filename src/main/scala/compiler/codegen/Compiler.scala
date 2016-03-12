@@ -9,8 +9,6 @@ class Compile(source: String) extends StaticAnnotation {
   def macroTransform(annottees: Any*): Any = macro Compiler.impl
 }
 
-import scalaz.Leibniz._
-
 object Make {
   def generateCode(gen: GenCode)(
     decls: List[Declaration]): gen.AST = {

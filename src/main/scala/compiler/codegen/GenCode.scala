@@ -116,7 +116,27 @@ object GenScala extends MacrosCompatibility {
     def generateContainer(bs: Bindings, decl: Declaration): Option[Container] = ???
     def msgDeclGenerator: MsgDeclGenerator[Container] = ???
     def typeDeclGenerator: TypeDeclGenerator[Container] = ???
-    def generateCode(containers: List[Container]): AST = ???
+
+    def maybe(a: Option[AST]) = a getOrElse q""
+
+    def generateCode(containers: List[Container]): AST = {
+      containers.foldLeft(q"") { (q, c) => q"""
+        ${q}
+        ${q"""
+          object ${TermName(c.name.capitalize)} {
+            ${maybe(c.importModules)}
+            ${maybe(c.types)}
+            ${maybe(c.defaultFunction)}
+            ${maybe(c.prettyPrinter)}
+            ${maybe(c.reader)}
+            ${maybe(c.ioReader)}
+            ${maybe(c.writer)}
+          }
+          """
+        }
+      """
+      }
+    }
 
     def generateContainer(bindings: Bindings): ScalaContainer = {
       def typeDecl(name: String, ctyp: ctx.Tree, params: List[String] = List()): ctx.Tree = {
