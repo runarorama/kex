@@ -12,8 +12,8 @@ trait GenCode {
   type AST
 
   def generateContainer(bs: Bindings, decl: Declaration): Option[Container]
-  def msgDeclGenerators: Map[String, MsgDeclGenerator[Container]]
-  def typeDeclGenerators: Map[String, TypeDeclGenerator[Container]]
+  def msgDeclGenerator: MsgDeclGenerator[Container]
+  def typeDeclGenerator: TypeDeclGenerator[Container]
   def generateCode(containers: List[Container]): AST
 }
 
@@ -41,11 +41,6 @@ object GenScala extends MacrosCompatibility {
     import ctx.universe.{Constant => _, _}
 
     type AST = ctx.Tree
-
-  def generateContainer(bs: Bindings, decl: Declaration): Option[Container] = ???
-  def msgDeclGenerators: Map[String, MsgDeclGenerator[Container]] = ???
-  def typeDeclGenerators: Map[String, TypeDeclGenerator[Container]] = ???
-  def generateCode(containers: List[Container]): AST = ???
 
     case class ScalaContainer(
       name: String,
@@ -117,6 +112,11 @@ object GenScala extends MacrosCompatibility {
 
     def getType(default: ctx.Tree, opts: PT.TypeOptions): ctx.Tree =
       getTypeInfo(opts).map(_._1).getOrElse(default)
+
+    def generateContainer(bs: Bindings, decl: Declaration): Option[Container] = ???
+    def msgDeclGenerator: MsgDeclGenerator[Container] = ???
+    def typeDeclGenerator: TypeDeclGenerator[Container] = ???
+    def generateCode(containers: List[Container]): AST = ???
 
     def generateContainer(bindings: Bindings): ScalaContainer = {
       def typeDecl(name: String, ctyp: ctx.Tree, params: List[String] = List()): ctx.Tree = {
