@@ -2,7 +2,7 @@ name := "kex"
 
 version := "0.1"
 
-scalaVersion := "2.11.6"
+scalaVersion := "2.11.8"
 
 description := "Extensible Protocols for Scala"
 
@@ -22,7 +22,8 @@ scalacOptions ++=
   Seq("-encoding", "UTF-8", "-Yrecursion", "50", "-deprecation",
       "-unchecked", "-Xlint", "-feature",
       "-language:implicitConversions", "-language:higherKinds",
-      "-language:existentials")
+      "-language:existentials", "-Ybackend:GenBCode",
+      "-Ydelambdafy:method", "-target:jvm-1.8")
 
 javacOptions ++=
   Seq("-Xlint:cast", "-Xlint:deprecation", "-Xlint:empty",

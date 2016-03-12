@@ -6,7 +6,9 @@ import ProtocolTypes.TypeOptions
 
 object Types {
   type Tag = Int
-  type Bindings = Map[String, LowLevel]
+  type Bindings = Map[String, Declaration]
+
+  val emptyBindings: Bindings = Map()
 }
 
 import Types._

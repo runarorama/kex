@@ -42,6 +42,11 @@ object GenScala extends MacrosCompatibility {
 
     type AST = ctx.Tree
 
+  def generateContainer(bs: Bindings, decl: Declaration): Option[Container] = ???
+  def msgDeclGenerators: Map[String, MsgDeclGenerator[Container]] = ???
+  def typeDeclGenerators: Map[String, TypeDeclGenerator[Container]] = ???
+  def generateCode(containers: List[Container]): AST = ???
+
     case class ScalaContainer(
       name: String,
       importModules: Option[AST],
@@ -58,17 +63,25 @@ object GenScala extends MacrosCompatibility {
     def emptyContainer(name: String, func: Option[AST], types: AST) =
       ScalaContainer(name, None, Some(types), None, None, None, None, func)
 
+    def identWithPath(path: List[String], ident: String) = {
+      val fullPath = path :+ ident
+      path.foldLeft[Tree](q"${Ident(TermName(fullPath.head))}") { (id, p) =>
+        q"${id}.${TermName(p)}"
+      }
+    }
+
     def defaultValue(v: LowLevel): Option[AST] = v match {
       case Vint(VBool, _) => Some(q"false")
       case Sum(xs, _) => xs.flatMap {
-        case Constant(x) => Some(q"${ctx.parse(x.tpe.capitalize)}.${TermName(x.name)}")
+        case Constant(x) =>
+          Some(q"${ctx.parse(x.tpe.capitalize)}.${TermName(x.name)}")
         case _ => None
       }.headOption
       case Htuple(HList, _, _) => Some(q"List()")
       case Htuple(HArray, _, _) => Some(q"Array()")
       case LLMessage(path, name, _) =>
         val fullPath = path ++ List(name.capitalize)
-        val id = identWithPath(ctx)(fullPath, s"${name}_default")
+        val id = identWithPath(fullPath, s"${name}_default")
         Some(q"$id")
       case Tuple(tys, _) => tys.traverse(defaultValue).map {
         case Nil      => sys.error("defaultValue: empty tuple")
@@ -121,7 +134,11 @@ object GenScala extends MacrosCompatibility {
 
 case class BadOption(msg: String) extends Exception
 
-// object GenCode {
+object GenCode {
+  def collectBindings(decls: List[Declaration]): Bindings =
+    decls.map(d => d.name -> d).toMap
+}
+
 //
 //   import Types._
 //   val P = ProtocolTypes
