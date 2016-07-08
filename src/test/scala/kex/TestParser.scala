@@ -1,4 +1,4 @@
-package extprot
+package kex
 
 import io.Source._
 import org.scalacheck._
@@ -13,7 +13,7 @@ object TestParser {
     Parser(fromInputStream(this.getClass.getResourceAsStream(f)).mkString) match {
       case Done(input, a) =>
         if (input.size > 0) {
-          println(s"Unexpected input: $input")
+          println(s"Unexpected input $f: $input")
           None
         }
         else Some(a)

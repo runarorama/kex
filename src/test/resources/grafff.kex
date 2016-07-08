@@ -22,7 +22,9 @@ type brush =
 
 message grafff1 = { objects : [ (shape * byte * brush) ] }
 
-message foo = [int] | [|int|] | (|int|)
+type foo = A [int] | B [|int|] | C (int * int) | D (int * [int] * [|int|])
+
+message bar = { a : [int]; b : [|int|]; c : (int * int); d : (int * [int] * [|int|]) }
 
 (***************************************************************************)
 
