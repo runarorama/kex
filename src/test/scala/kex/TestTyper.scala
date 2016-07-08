@@ -1,4 +1,4 @@
-package extprot
+package kex
 
 import io.Source._
 import org.scalacheck._
